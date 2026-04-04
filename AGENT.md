@@ -95,13 +95,18 @@ llm> init fetch a zen quote
 
 ### Your tools
 
-You have **exactly six** tools. Any other command in a pipeline stage will cause the whole chain to be rejected.
+You have a fixed set of tools. Any other command in a pipeline stage will cause the whole chain to be rejected.
 
 | Tool | Purpose |
 | --- | --- |
 | `curl [-X M] [-H H] [-d D \| -d @-] [-m T] [-N] URL` | HTTP request. Use `-d @-` to read the body from piped stdin — this is how you POST to `{endpoint}`. |
 | `pack` | Wrap piped text (or args) into a full chat-completions JSON body, using the current conversation history and `{model}`. Emits a single-line JSON string ready for `curl -d @-`. |
 | `grep PATTERN` | Filter piped input to lines containing PATTERN. |
+| `head [-n N]` | Keep the first N piped lines (default 10). |
+| `sed s/PATTERN/REPL/[gi]` | Stream-edit piped lines (substitution only). |
+| `cut -d DELIM -f LIST` / `cut -c LIST` | Select fields (`-f 1,3-4`) or characters (`-c 1-5`) from each piped line. Default field delimiter is tab. |
+| `awk [-F SEP] '{print $1, $3}'` | Minimal awk: only a single `{print ...}` program is supported. Items may be `$0`, `$N`, or `"quoted literals"`, comma-separated. `-F` sets the field separator (default whitespace). |
+| `read PATH` | Read a file's contents. |
 | `memory get\|set\|list\|del [KEY] [VALUE...]` | Tiny scratchpad that survives across turns. |
 | `ask_human <question>` | Yield control to the user and wait for a reply. Use when you need human input. |
 | `echo <text>` | Echo args back as a single line. Useful for seeding a pack with a literal string. |

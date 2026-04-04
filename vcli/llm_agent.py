@@ -20,7 +20,7 @@ agent.context.update({
 })
 
 # Only these tools may appear in a chain the LLM writes.
-ALLOWED_TOOLS = {"curl", "pack", "grep", "memory", "ask_human", "echo", "read", "sed", "head"}
+ALLOWED_TOOLS = {"curl", "pack", "grep", "memory", "ask_human", "echo", "read", "sed", "head", "cut", "awk"}
 
 
 @agent.cmd(name="endpoint", help="Set or show the chat-completions URL")
@@ -75,6 +75,151 @@ def _sed(args):
     except re.error as e:
         return f"sed: bad pattern: {e}"
     return "\n".join(rx.sub(repl, line, count=count) for line in lines)
+
+
+def _parse_ranges(spec: str, length_hint: int | None = None) -> list[int] | str:
+    """Parse a cut-style field/char spec like '1,3-5,7' into 1-based indices.
+    Returns an error string on failure."""
+    indices: list[int] = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        if "-" in part:
+            lo_s, hi_s = part.split("-", 1)
+            try:
+                lo = int(lo_s) if lo_s else 1
+                hi = int(hi_s) if hi_s else (length_hint or lo)
+            except ValueError:
+                return f"cut: bad range '{part}'"
+            if lo < 1 or hi < lo:
+                return f"cut: bad range '{part}'"
+            indices.extend(range(lo, hi + 1))
+        else:
+            try:
+                indices.append(int(part))
+            except ValueError:
+                return f"cut: bad field '{part}'"
+    return indices
+
+
+@agent.cmd(name="cut", help="Select fields/chars from piped lines: cut -d DELIM -f LIST | cut -c LIST")
+def _cut(args):
+    delim = "\t"
+    fields_spec = None
+    chars_spec = None
+    output_delim = None
+    lines: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "-d" and i + 1 < len(args):
+            delim = args[i + 1]; i += 2
+        elif a == "-f" and i + 1 < len(args):
+            fields_spec = args[i + 1]; i += 2
+        elif a == "-c" and i + 1 < len(args):
+            chars_spec = args[i + 1]; i += 2
+        elif a == "--output-delimiter" and i + 1 < len(args):
+            output_delim = args[i + 1]; i += 2
+        else:
+            lines.append(a); i += 1
+
+    if fields_spec is None and chars_spec is None:
+        return "usage: cut -d DELIM -f LIST  |  cut -c LIST"
+    if output_delim is None:
+        output_delim = delim if fields_spec is not None else ""
+
+    out = []
+    for line in lines:
+        if fields_spec is not None:
+            parts = line.split(delim)
+            idxs = _parse_ranges(fields_spec, len(parts))
+            if isinstance(idxs, str):
+                return idxs
+            picked = [parts[n - 1] for n in idxs if 1 <= n <= len(parts)]
+            out.append(output_delim.join(picked))
+        else:
+            idxs = _parse_ranges(chars_spec, len(line))
+            if isinstance(idxs, str):
+                return idxs
+            out.append("".join(line[n - 1] for n in idxs if 1 <= n <= len(line)))
+    return "\n".join(out)
+
+
+_AWK_PRINT_RX = re.compile(r"^\{\s*print\s*(.*?)\s*\}$")
+
+
+@agent.cmd(name="awk", help="Minimal awk: awk [-F SEP] '{print $1, $3}' — print statement only")
+def _awk(args):
+    sep = None  # None => whitespace split
+    program = None
+    lines: list[str] = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "-F" and i + 1 < len(args):
+            sep = args[i + 1]; i += 2
+        elif a.startswith("-F") and len(a) > 2:
+            sep = a[2:]; i += 1
+        elif program is None:
+            program = a; i += 1
+        else:
+            lines.append(a); i += 1
+
+    if program is None:
+        return "usage: awk [-F SEP] '{print $1, $3}'"
+    program = program.strip()
+    m = _AWK_PRINT_RX.match(program)
+    if not m:
+        return "awk: only '{print ...}' programs are supported"
+    expr = m.group(1).strip()
+
+    # Split the print arg list on top-level commas; each item is either a
+    # $N field reference, "$0", or a double-quoted literal.
+    def _split_args(s: str) -> list[str] | str:
+        items, cur, in_str, escape = [], [], False, False
+        for ch in s:
+            if escape:
+                cur.append(ch); escape = False; continue
+            if ch == "\\" and in_str:
+                cur.append(ch); escape = True; continue
+            if ch == '"':
+                in_str = not in_str; cur.append(ch); continue
+            if ch == "," and not in_str:
+                items.append("".join(cur).strip()); cur = []; continue
+            cur.append(ch)
+        if in_str:
+            return "awk: unterminated string"
+        tail = "".join(cur).strip()
+        if tail or items:
+            items.append(tail)
+        return items
+
+    pieces = _split_args(expr) if expr else []
+    if isinstance(pieces, str):
+        return pieces
+
+    out = []
+    for line in lines:
+        fields = line.split(sep) if sep is not None else line.split()
+        rendered = []
+        for p in pieces:
+            if not p:
+                rendered.append(""); continue
+            if p.startswith('"') and p.endswith('"') and len(p) >= 2:
+                rendered.append(p[1:-1].encode().decode("unicode_escape"))
+            elif p == "$0":
+                rendered.append(line)
+            elif p.startswith("$"):
+                try:
+                    n = int(p[1:])
+                except ValueError:
+                    return f"awk: bad field reference '{p}'"
+                rendered.append(fields[n - 1] if 1 <= n <= len(fields) else "")
+            else:
+                return f"awk: unsupported token '{p}'"
+        out.append(" ".join(rendered))
+    return "\n".join(out)
 
 
 @agent.cmd(name="head", help="First N piped lines: head [-n N] (default 10)")

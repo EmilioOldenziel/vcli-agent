@@ -2,7 +2,7 @@
 
 from vcli import Agent
 
-agent = Agent(name="demo")
+agent = Agent(name="cli")
 
 
 @agent.cmd(name="echo", help="Echo back arguments")

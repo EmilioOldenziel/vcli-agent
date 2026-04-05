@@ -99,3 +99,31 @@ agent.context["unwrap"] = _unwrap_hook
 agent.context["extract_command"] = _extract_hook
 
 
+if __name__ == "__main__":
+    import os
+    import sys
+
+    endpoint = os.environ.get("VCLI_ENDPOINT")
+    if endpoint:
+        agent.context["endpoint"] = endpoint
+
+    model = os.environ.get("VCLI_MODEL")
+    if model:
+        agent.context["model"] = model
+
+    key = os.environ.get("VCLI_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if key:
+        q = chr(39)
+        agent.context["auth_header"] = f"-H {q}Authorization: Bearer {key}{q}"
+
+    initial = None
+    if not sys.stdin.isatty():
+        initial = sys.stdin.read().strip() or None
+        # Reconnect stdin to the tty so the REPL / ask_human can still read input
+        # after the initial command runs.
+        try:
+            sys.stdin = open("/dev/tty")
+        except OSError:
+            pass
+
+    agent.run(initial=initial)

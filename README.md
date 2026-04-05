@@ -2,13 +2,21 @@
 
 A tiny Python framework for building virtual CLI agents — register commands with a decorator, run an interactive REPL, compose commands with pipes and chains.
 
-**Try it in one line** (needs an OpenAI key, nothing else — no install, no deps):
+**Try it in one line** (needs inserton of an OpenAI key, nothing else — no install, no deps):
 
 ```bash
-git clone https://github.com/EmilioOldenziel/vcli-agent && cd vcli-agent && OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me")'
+git clone https://github.com/EmilioOldenziel/vcli-agent && cd vcli-agent && export OPENAI_API_KEY=[INSERT KEY HERE e.g. sk-...]\ &&  echo "ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me" \
+  | python3 -m vcli.llm_agent
 ```
 
 You'll watch `gpt-4o-mini` write its own unix pipelines, pause mid-loop to call `ask_human` for the repo name, self-curl back to itself each turn, and finish with `DONE:`.
+
+Both `vcli` and `vcli.llm_agent` read stdin as the initial command when it's not a tty, so you can pipe a pipeline straight in — `vcli.llm_agent` also picks up `OPENAI_API_KEY` from the environment and builds the bearer header itself:
+
+```bash
+# demo agent: run a vcli pipeline from stdin
+echo "echo hello world | upper" | python3 -m vcli
+```
 
 ## Why this exists
 
@@ -28,27 +36,6 @@ Crucially, the "commands" are **virtual**: `grep`, `sed`, `awk`, `cut`, `curl` a
 
 See `AGENT.md` for the full protocol; it doubles as the system prompt the LLM reads when `ask_agent` runs.
 
-## Basic usage
-
-```python
-from vcli import Agent
-
-agent = Agent(name="demo")
-
-@agent.cmd(name="echo", help="Echo back arguments")
-def echo(args):
-    return " ".join(args)
-
-if __name__ == "__main__":
-    agent.run()
-```
-
-Run the included example:
-
-```bash
-python -m vcli.example
-```
-
 ## Features
 
 - **Decorator-based commands** — `@agent.cmd(name=..., help=...)`
@@ -60,7 +47,7 @@ python -m vcli.example
   - I/O: `read`, `curl`, `tee`, `url`, `date`
   - meta: `help`, `exit`
 
-## Writing commands
+## Writing tools as commands
 
 A command is a function that takes a list of string args and returns a string. When piped, the upstream output is split into lines and appended to `args`:
 
@@ -72,7 +59,7 @@ def reverse(args):
 
 Return `None` or an empty string to suppress output. Raise `SystemExit` to exit the REPL.
 
-## Example session
+## Example sessions
 
 The built-ins are deliberately shaped like the unix tools you already know, so a pipeline reads the same way in vcli as it would in bash. This matters because the *same grammar* is what the LLM writes during the agent loop — there is nothing special about how it composes work.
 
@@ -157,45 +144,54 @@ The point of vcli is that **this same grammar is what the LLM writes**. When `ll
 
 `Agent.run` supports an optional auto-chain mode: if `context['extract_command']` is set and returns a non-empty string from a command's output, the REPL treats that string as the next command to execute — no stdin read in between. Combined with `context['unwrap']` (which preprocesses every output) and `context['max_steps']` (step budget), this is enough to turn any command whose output is itself a command into a driver for the next step. This is how `llm_agent.py` implements its LLM loop without a dedicated driver.
 
-## The LLM agent loop
+# The LLM agent loop
 
 vcli talks to any OpenAI-compatible chat endpoint. No dependencies, no SDK — just `urllib`.
 
 ### Quickstart: OpenAI (zero setup)
 
-`vcli.llm_agent` is a plain library module — no `__main__`. You drive it with a short `python3 -c '...'` snippet that imports the pre-built `agent`, sets the auth header from your key, and calls `agent.run(initial="ask_agent <question>")`:
+`vcli.llm_agent` has a `__main__`: pipe an `ask_agent <question>` line into it and it reads stdin as the initial command. It also picks up `OPENAI_API_KEY` from the environment and builds the bearer header itself:
 
 ```bash
-OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me")'
+echo "ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me" \
+  | OPENAI_API_KEY=sk-... python3 -m vcli.llm_agent
 ```
 
-The agent context already defaults to `https://api.openai.com/v1/chat/completions` with `gpt-4o-mini`, so the snippet only has to inject the bearer header. `ask_agent <question>` is the chain you hand it: on the first call it loads `AGENT.md` as the system prompt and seeds the conversation with your question, then the LLM takes over, writing its own pipelines and self-curling each turn until it replies `DONE:`.
+The agent context already defaults to `https://api.openai.com/v1/chat/completions` with `gpt-4o-mini`, so nothing else needs configuring. `ask_agent <question>` is the chain you hand it: on the first call it loads `AGENT.md` as the system prompt and seeds the conversation with your question, then the LLM takes over, writing its own pipelines and self-curling each turn until it replies `DONE:`.
 
-Override the model in the same snippet by setting `agent.context["model"]`:
+To override the model, export `VCLI_MODEL` — or drop into a tiny `-c` snippet if you need to tweak more of the context. A simple model override via env var works out of the box:
 
 ```bash
-OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["model"]="gpt-4o"; agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent summarize the llama.cpp README")'
+echo "ask_agent summarize the llama.cpp README" \
+  | OPENAI_API_KEY=sk-... VCLI_MODEL=gpt-4o python3 -m vcli.llm_agent
 ```
 
 ### Interactive mode
 
-Drop the `initial=` argument to get a REPL instead of auto-kicking the loop, then type `ask_agent <question>` (or any vcli pipeline) at the prompt:
+With no stdin piped in, `python3 -m vcli.llm_agent` drops straight into a REPL — type `ask_agent <question>` (or any vcli pipeline) at the prompt:
 
 ```bash
-OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run()'
+OPENAI_API_KEY=sk-... python3 -m vcli.llm_agent
 llm> ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me
 ```
 
 ### Other providers (local llama.cpp, Ollama, vLLM, Together, Groq, …)
 
-Any OpenAI-compatible endpoint works — just point `agent.context["endpoint"]` at it and set the model name. Local servers that don't need auth can skip the header entirely:
+Any OpenAI-compatible endpoint works — point `VCLI_ENDPOINT` at it and set `VCLI_MODEL`. Local servers that don't need auth can skip the key entirely; hosted providers with a bearer token use `VCLI_API_KEY` instead of `OPENAI_API_KEY`:
 
 ```bash
 # llama.cpp server, no auth
-python3 -c 'from vcli.llm_agent import agent; agent.context["endpoint"]="http://0.0.0.0:8080/v1/chat/completions"; agent.context["model"]="unsloth/Qwen3.5-9B-GGUF:Q4_K_M"; agent.run(initial="ask_agent fetch a zen quote")'
+echo "ask_agent fetch a zen quote" \
+  | VCLI_ENDPOINT=http://0.0.0.0:8080/v1/chat/completions \
+    VCLI_MODEL=unsloth/Qwen3.5-9B-GGUF:Q4_K_M \
+    python3 -m vcli.llm_agent
 
 # hosted provider with a bearer token
-GROQ_API_KEY=gsk_... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["GROQ_API_KEY"]; q=chr(39); agent.context["endpoint"]="https://api.groq.com/openai/v1/chat/completions"; agent.context["model"]="llama-3.3-70b-versatile"; agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent fetch a zen quote")'
+echo "ask_agent fetch a zen quote" \
+  | VCLI_API_KEY=gsk_... \
+    VCLI_ENDPOINT=https://api.groq.com/openai/v1/chat/completions \
+    VCLI_MODEL=llama-3.3-70b-versatile \
+    python3 -m vcli.llm_agent
 ```
 
 `ask_agent` emits a chain that packs a user message and POSTs it to the endpoint. On the first call it prepends `read AGENT.md |` so the brief is installed as the system prompt; on later calls it just appends a new user turn against the running history. Either way, the LLM's reply is itself the next chain, which must end in another self-curl to keep the loop alive. The loop terminates when:
@@ -207,7 +203,7 @@ GROQ_API_KEY=gsk_... python3 -c 'import os; from vcli.llm_agent import agent; k=
 
 The LLM's allowed toolset during the loop is restricted to: `curl`, `pack`, `grep`, `memory`, `ask_human`, `echo`, `read`, `sed`, `head`, `tail`, `cut`, `awk`, `wc`, `sort`, `uniq`, `tee`, `url`, `date`, `help`. Any other command in a pipeline stage causes the whole chain to be rejected and the error fed back to the model as its next input.
 
-## Next steps: a virtual filesystem
+# Next steps: a virtual filesystem
 
 The natural extension of the "sandbox = the functions you registered" idea is a **virtual filesystem**, implemented in the same fully-Pythonic way. Today `read` and `tee` touch the real disk; the next step is to introduce an in-process filesystem — a plain Python dict (or a small tree of dicts) mapping paths to contents — and rebuild the familiar filesystem tools on top of it.
 

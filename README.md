@@ -2,12 +2,14 @@
 
 ```
  __   __  ___  _     ___
- \ \ / / / __|| |   |_ _|     vcli-agent
-  \ V / | (__ | |__  | |      pipe-native LLM agent loops
+ \ \ / / / __|| |   |_ _|
+  \ V / | (__ | |__  | |
    \_/   \___||____||___|
 
-                              ╭─ echo | pack | curl ─╮
-                              ╰─────────◄────────────╯
+pipe-native LLM agent loops
+
+  ╭─ echo | pack | curl ─╮
+  ╰─────────◄────────────╯
 ```
 
 A tiny Python harness where an LLM agent *is* a virtual unix pipeline: the model's reply is the next command line, every tool (`grep`, `curl`, `sed`, …) is a pure-Python function, and each turn ends in a self-curl that keeps the loop going.

@@ -1,4 +1,4 @@
-# vcli
+# vcli-agent
 
 A tiny Python framework for building virtual CLI agents — register commands with a decorator, run an interactive REPL, compose commands with pipes and chains.
 

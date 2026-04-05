@@ -1,6 +1,6 @@
 # vcli-agent
 
-A tiny Python framework for building virtual CLI agents — register commands with a decorator, run an interactive REPL, compose commands with pipes and chains.
+A tiny Python harness where an LLM agent *is* a virtual unix pipeline: the model's reply is the next command line, every tool (`grep`, `curl`, `sed`, …) is a pure-Python function, and each turn ends in a self-curl that keeps the loop going.
 
 **Try it in one line** (needs inserton of an OpenAI key, nothing else — no install, no deps):
 

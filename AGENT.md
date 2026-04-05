@@ -26,7 +26,7 @@ Built-in commands (see `vcli/tools.py`):
 | --- | --- |
 | `help` | List all registered commands |
 | `echo <text>` | Echo args back as a single line |
-| `read <path>` | Read a file's contents |
+| `cat <path>` | Read a file's contents |
 | `curl [-X M] [-H H] [-d D \| -d @-] [-m T] [-N] URL` | HTTP fetch via `urllib`; returns response body. `-d @-` reads the body from piped stdin. |
 | `upper` / `lower` | Case-map piped input |
 | `count` | Count piped lines |
@@ -65,7 +65,7 @@ There is **no hidden driver** and **no `llm` helper tool**. After the seed turn,
 ask_agent <question>
   │
   ▼
-read AGENT.md                               # harness loads this brief as system prompt
+cat AGENT.md                                # harness loads this brief as system prompt
   │
   ▼
 <question> | pack | curl -d @-              # seed chain (step 0)
@@ -123,7 +123,7 @@ You have a fixed set of tools. Any other command in a pipeline stage will cause 
 | `tee KEY` | Save piped input into `memory[KEY]` and pass it through downstream. Combine with `memory get KEY` on a later turn to recall it. |
 | `url encode\|decode [TEXT]` | URL-encode/decode args or piped input. Use before embedding user data in a `curl` URL. |
 | `date [-u] [+FORMAT]` | Current date/time. ISO 8601 by default, strftime with `+FORMAT`, `-u` for UTC. Your only source of "now". |
-| `read PATH` | Read a file's contents. |
+| `cat PATH` | Read a file's contents. |
 | `memory get\|set\|list\|del [KEY] [VALUE...]` | Tiny scratchpad that survives across turns. |
 | `ask_human <question>` | Yield control to the user and wait for a reply. Use when you need human input. |
 | `echo <text>` | Echo args back as a single line. Useful for seeding a pack with a literal string. |
@@ -166,7 +166,7 @@ The harness parses your reply by looking for a line starting with `CMD:` or `DON
 ### Rules
 
 1. **Start your reply with `CMD:` or `DONE:`.** One line. No preamble, no code fences, no markdown headers.
-2. **Only these tools** may appear as pipeline stages: `curl`, `pack`, `grep`, `memory`, `ask_human`, `echo`, `read`, `sed`, `head`, `tail`, `cut`, `awk`, `wc`, `sort`, `uniq`, `tee`, `url`, `date`, `help`. Nothing else.
+2. **Only these tools** may appear as pipeline stages: `curl`, `pack`, `grep`, `memory`, `ask_human`, `echo`, `cat`, `sed`, `head`, `tail`, `cut`, `awk`, `wc`, `sort`, `uniq`, `tee`, `url`, `date`, `help`. Nothing else.
 3. **Every `CMD:` chain must end with a self-curl** to `{endpoint}` (preceded by `| pack`). If it doesn't, the loop ends.
 4. **One chain per turn.** It may use pipes (`|`) and chains (`;`) internally, but it is still one line.
 5. **When you need user input, use `ask_human` as an early stage** (its output pipes into `pack`).

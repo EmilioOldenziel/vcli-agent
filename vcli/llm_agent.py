@@ -26,7 +26,7 @@ tools.register_llm(agent)
 
 # Only these tools may appear in a chain the LLM writes.
 ALLOWED_TOOLS = {
-    "curl", "pack", "grep", "memory", "ask_human", "echo", "read",
+    "curl", "pack", "grep", "memory", "ask_human", "echo", "cat",
     "sed", "head", "tail", "cut", "awk", "wc", "sort", "uniq", "tee",
     "url", "date", "help",
 }

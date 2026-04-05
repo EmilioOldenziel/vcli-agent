@@ -308,10 +308,10 @@ def register_core(agent):
             out.append(" ".join(rendered))
         return "\n".join(out)
 
-    @agent.cmd(name="read", help="Read a file's contents: read PATH")
-    def _read(args):
+    @agent.cmd(name="cat", help="Read a file's contents: cat PATH")
+    def _cat(args):
         if not args:
-            return "usage: read PATH"
+            return "usage: cat PATH"
         try:
             with open(args[0], "r", encoding="utf-8") as f:
                 return f.read()
@@ -451,7 +451,7 @@ def register_llm(agent):
             brief = agent.context.get("brief", "AGENT.md")
             if question:
                 agent.context["seed"] = question
-            return f"read {shlex.quote(brief)} | pack {curl_tail}"
+            return f"cat {shlex.quote(brief)} | pack {curl_tail}"
 
         if not question:
             return "ask_agent: need a question after the first turn"

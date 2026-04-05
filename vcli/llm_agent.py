@@ -20,7 +20,7 @@ agent.context.update({
 })
 
 # Only these tools may appear in a chain the LLM writes.
-ALLOWED_TOOLS = {"curl", "pack", "grep", "memory", "ask_human", "echo", "read", "sed", "head", "cut", "awk"}
+ALLOWED_TOOLS = {"curl", "pack", "grep", "memory", "ask_human", "echo", "read", "sed", "head", "cut", "awk", "help"}
 
 
 @agent.cmd(name="endpoint", help="Set or show the chat-completions URL")

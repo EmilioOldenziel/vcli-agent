@@ -110,6 +110,7 @@ You have a fixed set of tools. Any other command in a pipeline stage will cause 
 | `memory get\|set\|list\|del [KEY] [VALUE...]` | Tiny scratchpad that survives across turns. |
 | `ask_human <question>` | Yield control to the user and wait for a reply. Use when you need human input. |
 | `echo <text>` | Echo args back as a single line. Useful for seeding a pack with a literal string. |
+| `help` | List all registered commands with their one-line help text. Handy when you forget a tool's flags. |
 
 Pipes (`|`) and chains (`;`) compose these.
 

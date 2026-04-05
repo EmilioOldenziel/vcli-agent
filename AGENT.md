@@ -19,17 +19,27 @@ Before the file is handed to the model, the harness substitutes two placeholders
 - **Pipes (`|`)** — the output of one command is split into lines and appended as extra args to the next command. `echo hello | upper` → `HELLO`.
 - **Chains (`;`)** — commands run sequentially; their outputs are joined with newlines.
 
-Built-in commands (see `vcli/vcli.py`):
+Built-in commands (see `vcli/tools.py`):
 
 | Command | Purpose |
 | --- | --- |
 | `help` | List all registered commands |
+| `echo <text>` | Echo args back as a single line |
 | `read <path>` | Read a file's contents |
 | `curl [-X M] [-H H] [-d D \| -d @-] [-m T] [-N] URL` | HTTP fetch via `urllib`; returns response body. `-d @-` reads the body from piped stdin. |
 | `upper` / `lower` | Case-map piped input |
 | `count` | Count piped lines |
-| `head [N]` | First N piped lines |
+| `wc [-l\|-w\|-c]` | Lines / words / chars of piped input (default shows all three) |
+| `head [-n N]` / `tail [-n N]` | First / last N piped lines (default 10) |
 | `grep <pattern>` | Filter piped lines |
+| `sed s/PATTERN/REPL/[gi]` | Stream substitution on piped lines |
+| `cut -d DELIM -f LIST` / `cut -c LIST` | Select fields or characters per line |
+| `awk [-F SEP] '{print $1, $3}'` | Minimal awk — `{print ...}` programs only |
+| `sort [-r] [-n] [-u]` | Sort piped lines (reverse / numeric / unique) |
+| `uniq [-c]` | Drop adjacent duplicate lines, optionally with counts |
+| `tee KEY` | Stash piped input into `context['memory'][KEY]` and pass it through |
+| `url encode\|decode [TEXT]` | URL-encode/decode args or piped input |
+| `date [-u] [+FORMAT]` | Current time (ISO 8601 by default, strftime with `+FORMAT`) |
 | `exit` | Quit the REPL |
 
 `vcli/llm_agent.py` adds agent-loop commands on top:
@@ -102,10 +112,16 @@ You have a fixed set of tools. Any other command in a pipeline stage will cause 
 | `curl [-X M] [-H H] [-d D \| -d @-] [-m T] [-N] URL` | HTTP request. Use `-d @-` to read the body from piped stdin — this is how you POST to `{endpoint}`. |
 | `pack` | Wrap piped text (or args) into a full chat-completions JSON body, using the current conversation history and `{model}`. Emits a single-line JSON string ready for `curl -d @-`. |
 | `grep PATTERN` | Filter piped input to lines containing PATTERN. |
-| `head [-n N]` | Keep the first N piped lines (default 10). |
+| `head [-n N]` / `tail [-n N]` | Keep the first / last N piped lines (default 10). |
+| `wc [-l\|-w\|-c]` | Count lines / words / chars of piped input. Default prints all three. |
 | `sed s/PATTERN/REPL/[gi]` | Stream-edit piped lines (substitution only). |
 | `cut -d DELIM -f LIST` / `cut -c LIST` | Select fields (`-f 1,3-4`) or characters (`-c 1-5`) from each piped line. Default field delimiter is tab. |
 | `awk [-F SEP] '{print $1, $3}'` | Minimal awk: only a single `{print ...}` program is supported. Items may be `$0`, `$N`, or `"quoted literals"`, comma-separated. `-F` sets the field separator (default whitespace). |
+| `sort [-r] [-n] [-u]` | Sort piped lines; reverse, numeric, and unique flags supported. |
+| `uniq [-c]` | Drop adjacent duplicate lines; `-c` prefixes each line with its run count. |
+| `tee KEY` | Save piped input into `memory[KEY]` and pass it through downstream. Combine with `memory get KEY` on a later turn to recall it. |
+| `url encode\|decode [TEXT]` | URL-encode/decode args or piped input. Use before embedding user data in a `curl` URL. |
+| `date [-u] [+FORMAT]` | Current date/time. ISO 8601 by default, strftime with `+FORMAT`, `-u` for UTC. Your only source of "now". |
 | `read PATH` | Read a file's contents. |
 | `memory get\|set\|list\|del [KEY] [VALUE...]` | Tiny scratchpad that survives across turns. |
 | `ask_human <question>` | Yield control to the user and wait for a reply. Use when you need human input. |
@@ -147,7 +163,7 @@ The harness parses your reply by looking for a line starting with `CMD:` or `DON
 ### Rules
 
 1. **Start your reply with `CMD:` or `DONE:`.** One line. No preamble, no code fences, no markdown headers.
-2. **Only `curl`, `pack`, `grep`, `memory`, `ask_human`, `echo`** may appear as pipeline stages. Nothing else.
+2. **Only these tools** may appear as pipeline stages: `curl`, `pack`, `grep`, `memory`, `ask_human`, `echo`, `read`, `sed`, `head`, `tail`, `cut`, `awk`, `wc`, `sort`, `uniq`, `tee`, `url`, `date`, `help`. Nothing else.
 3. **Every `CMD:` chain must end with a self-curl** to `{endpoint}` (preceded by `| pack`). If it doesn't, the loop ends.
 4. **One chain per turn.** It may use pipes (`|`) and chains (`;`) internally, but it is still one line.
 5. **When you need user input, use `ask_human` as an early stage** (its output pipes into `pack`).

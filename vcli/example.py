@@ -1,6 +1,6 @@
 """Example: a small virtual CLI with a few demo commands."""
 
-from .vcli import Agent
+from vcli import Agent
 
 agent = Agent(name="demo")
 

@@ -1,5 +1,15 @@
 # vcli-agent
 
+```
+ __   __  ___  _     ___
+ \ \ / / / __|| |   |_ _|     vcli-agent
+  \ V / | (__ | |__  | |      pipe-native LLM agent loops
+   \_/   \___||____||___|
+
+                              ╭─ echo | pack | curl ─╮
+                              ╰─────────◄────────────╯
+```
+
 A tiny Python harness where an LLM agent *is* a virtual unix pipeline: the model's reply is the next command line, every tool (`grep`, `curl`, `sed`, …) is a pure-Python function, and each turn ends in a self-curl that keeps the loop going.
 
 **Try it in one line** (needs inserton of an OpenAI key, nothing else — no install, no deps):

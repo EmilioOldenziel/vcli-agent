@@ -2,7 +2,7 @@
 
 `register_core` installs the text/HTTP tools available to every Agent.
 `register_llm` installs the extra tools the LLM-driven agent needs
-(pack/memory/ask_human/init and chat-completion context commands).
+(pack/memory/ask_human/ask_agent and chat-completion context commands).
 """
 
 import datetime
@@ -362,13 +362,15 @@ def register_llm(agent):
             return "usage: <text> | pack  or  pack <text>"
         text = text.replace("{endpoint}", agent.context.get("endpoint", ""))
         text = text.replace("{model}", agent.context.get("model", ""))
+        text = text.replace("{auth_header}", agent.context.get("auth_header", ""))
 
         messages = agent.context["messages"]
         if not messages:
             # First turn: install brief as system, add a minimal user kickoff
             # (Qwen3 chat templates reject system-only requests).
             messages.append({"role": "system", "content": text})
-            messages.append({"role": "user", "content": "Begin."})
+            seed = agent.context.get("seed") or "Begin."
+            messages.append({"role": "user", "content": seed})
         else:
             messages.append({"role": "user", "content": text})
 
@@ -422,19 +424,38 @@ def register_llm(agent):
             print()
             return "DONE"
 
-    @agent.cmd(name="init", help="Bootstrap: read AGENT.md | pack | curl {endpoint}")
-    def _init(args):
-        """Return the bootstrap chain as a bare string. The auto-chain driver in
-        Agent.run recognizes it (all whitelisted tools) and runs it next."""
-        brief = agent.context.get("brief", "AGENT.md")
+    @agent.cmd(
+        name="ask_agent",
+        help="Send a prompt to the LLM (bootstraps AGENT.md on first call, "
+             "appends a new user turn thereafter)",
+    )
+    def _ask_agent(args):
+        """Return a chain that packs a user message and self-curls the endpoint.
+        The auto-chain driver in Agent.run recognizes the chain (all whitelisted
+        tools) and runs it next.
+
+        - First call: loads AGENT.md as the system prompt and seeds the user
+          turn with the provided question (or "Begin." if none was given).
+        - Subsequent calls: appends the question as a new user turn against the
+          existing conversation history — no system reload.
+        """
         endpoint = agent.context["endpoint"]
-        agent.context["messages"] = []
-        return (
-            f"read {shlex.quote(brief)} "
-            f"| pack "
+        auth = agent.context.get("auth_header", "")
+        question = " ".join(args).strip()
+        curl_tail = (
             f"| curl -X POST {shlex.quote(endpoint)} "
-            f"-H 'Content-Type: application/json' -m 300 -d @-"
+            f"-H 'Content-Type: application/json' {auth} -m 300 -d @-"
         )
+
+        if not agent.context.get("messages"):
+            brief = agent.context.get("brief", "AGENT.md")
+            if question:
+                agent.context["seed"] = question
+            return f"read {shlex.quote(brief)} | pack {curl_tail}"
+
+        if not question:
+            return "ask_agent: need a question after the first turn"
+        return f"echo {shlex.quote(question)} | pack {curl_tail}"
 
 
 # ---------------------------------------------------------------------------
@@ -498,6 +519,17 @@ def _curl_impl(agent, args: list[str]) -> str:
     timeout, stream, body_from_stdin = 30.0, False, False
     extras: list[str] = []
 
+    # Separate piped stdin (from previous pipeline stage) from command-line args.
+    # _run_one appends piped.splitlines() to args; strip that tail so that only
+    # the true CLI tokens drive flag parsing, and the piped bytes are used
+    # verbatim as the request body when -d @- is set. Mixing them caused
+    # invalid JSON bodies when extras contained stray tokens alongside the
+    # packed JSON (extras was joined with "\n", producing "garbage\n{...}").
+    piped = getattr(agent, "_piped", None)
+    if piped is not None:
+        n_piped = len(piped.splitlines())
+        args = args[: len(args) - n_piped] if n_piped else list(args)
+
     i = 0
     while i < len(args):
         a = args[i]
@@ -532,11 +564,13 @@ def _curl_impl(agent, args: list[str]) -> str:
             if url is None:
                 url = a
             else:
-                extras.append(a)  # piped stdin lines destined for body
+                extras.append(a)  # stray positional args (ignored)
             i += 1
 
     if body_from_stdin:
-        data = "\n".join(extras).encode()
+        if piped is None:
+            return "error: curl -d @- used with no piped input"
+        data = piped.encode("utf-8")
     if not url:
         return "usage: curl [-X M] [-H H] [-d D | -d @-] [-m T] [-N] URL"
 

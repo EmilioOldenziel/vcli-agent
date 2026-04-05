@@ -13,9 +13,13 @@ agent.context.update({
     "max_tokens": 4096,
     "messages": [],
     "memory": {},
-    # Qwen3: disable verbose reasoning so the model emits visible content directly.
-    "extra_payload": {"chat_template_kwargs": {"enable_thinking": False}},
-    "max_steps": 24,
+    # Pre-formatted curl header fragment (e.g. "-H 'Authorization: Bearer sk-...'").
+    # Empty by default; set this when talking to hosted providers like OpenAI.
+    "auth_header": "",
+    # Provider-specific extra fields merged into the request body. Empty for
+    # OpenAI; set e.g. {"chat_template_kwargs": {"enable_thinking": False}} for Qwen3.
+    "extra_payload": {},
+    "max_steps": 30,
 })
 
 tools.register_llm(agent)
@@ -95,5 +99,3 @@ agent.context["unwrap"] = _unwrap_hook
 agent.context["extract_command"] = _extract_hook
 
 
-if __name__ == "__main__":
-    agent.run()

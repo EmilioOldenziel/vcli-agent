@@ -3,12 +3,13 @@
 This file is **dual-purpose**:
 
 1. For humans, it documents what `vcli` is and how the agent loop works.
-2. For an LLM, it *is* the system prompt. When you run `init` inside `vcli/llm_agent.py`, this file is read from disk and handed to the model as its instructions. Everything written below (including the protocol section) is what the model will see.
+2. For an LLM, it *is* the system prompt. When you run `ask_agent` inside `vcli/llm_agent.py`, this file is read from disk and handed to the model as its instructions. Everything written below (including the protocol section) is what the model will see.
 
-Before the file is handed to the model, the harness substitutes two placeholders:
+Before the file is handed to the model, the harness substitutes three placeholders:
 
 - `{endpoint}` — the chat-completions URL the model must self-curl back to
 - `{model}` — the model name that must appear in the JSON body
+- `{auth_header}` — a pre-formatted `-H 'Authorization: Bearer ...'` fragment (empty for local endpoints that need no auth)
 
 ---
 
@@ -48,7 +49,7 @@ Built-in commands (see `vcli/tools.py`):
 | --- | --- |
 | `endpoint [url]` | Get/set the chat-completions URL (default: OpenAI) |
 | `model [name]` | Get/set the model name |
-| `init [seed question]` | **Start the autonomous agent loop.** Loads `AGENT.md` as the system prompt, runs a seed chain, then lets the LLM drive. |
+| `ask_agent [question]` | **Ask the agent.** On the first call, loads `AGENT.md` as the system prompt and seeds the conversation with the question; on subsequent calls, appends the question as a new user turn. Either way, emits a chain that self-curls `{endpoint}` and hands control to the LLM. |
 | `pack` | Wrap piped text into a chat-completions JSON body using the current conversation history + model name. Ready to be piped into `curl -d @-`. |
 | `memory get\|set\|list\|del` | Tiny scratchpad that survives across turns |
 | `ask_human <question>` | Yield control to the user and read one line |
@@ -56,18 +57,18 @@ Built-in commands (see `vcli/tools.py`):
 
 There is **no hidden driver** and **no `llm` helper tool**. After the seed turn, the LLM itself writes every chain, and every chain must end with a literal `curl -X POST {endpoint} ... -d @-` self-call so that the loop can continue.
 
-## The agent loop (what `init` does)
+## The agent loop (what `ask_agent` does)
 
-`init` is a **pipe-native loop** where the LLM authors its own self-curls.
+`ask_agent` is a **pipe-native loop** where the LLM authors its own self-curls.
 
 ```
-init
+ask_agent <question>
   │
   ▼
 read AGENT.md                               # harness loads this brief as system prompt
   │
   ▼
-ask_human <seed> | pack | curl -d @-        # hand-crafted seed chain (step 0)
+<question> | pack | curl -d @-              # seed chain (step 0)
   │
   ▼
 <LLM assistant reply is the next chain>
@@ -94,7 +95,7 @@ Run it:
 python -m vcli.llm_agent
 llm> endpoint http://0.0.0.0:8080/v1/chat/completions
 llm> model unsloth/Qwen3.5-9B-GGUF:Q4_K_M
-llm> init fetch a zen quote
+llm> ask_agent fetch a zen quote
 ```
 
 ---
@@ -135,8 +136,10 @@ Pipes (`|`) and chains (`;`) compose these.
 To continue the loop, every chain you write must look like this (order matters):
 
 ```
-<do stuff: curl, grep, memory, ask_human, echo, ...> | pack | curl -X POST {endpoint} -H 'Content-Type: application/json' -m 300 -d @-
+<do stuff: curl, grep, memory, ask_human, echo, ...> | pack | curl -X POST {endpoint} -H 'Content-Type: application/json' {auth_header} -m 300 -d @-
 ```
+
+When the endpoint requires auth (e.g. OpenAI), the harness replaces `{auth_header}` with a real `-H 'Authorization: Bearer sk-...'` fragment. When it is empty (local server), just omit it. **Copy whatever appears in place of `{auth_header}` verbatim into every self-curl.**
 
 - The early stages gather whatever data you need (fetch a URL, filter it, read memory, ask the human).
 - `pack` turns that data into a chat-completions JSON body, appending it as a new user message against the running history.
@@ -176,12 +179,12 @@ The human asked: *"fetch the latest llama.cpp release tag"*. The harness ran a s
 
 ```
 turn 1 assistant:
-CMD: curl https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | grep tag_name | pack | curl -X POST {endpoint} -H 'Content-Type: application/json' -m 300 -d @-
+CMD: curl https://api.github.com/repos/ggerganov/llama.cpp/releases/latest | grep tag_name | pack | curl -X POST {endpoint} -H 'Content-Type: application/json' {auth_header} -m 300 -d @-
 
 (harness runs the chain; the terminal curl's JSON response contains your next reply:)
 
 turn 2 assistant:
-CMD: ask_human Latest release is b8562. Want the changelog? | pack | curl -X POST {endpoint} -H 'Content-Type: application/json' -m 300 -d @-
+CMD: ask_human Latest release is b8562. Want the changelog? | pack | curl -X POST {endpoint} -H 'Content-Type: application/json' {auth_header} -m 300 -d @-
 
 (human types "no that's fine"; harness runs the chain; next reply:)
 

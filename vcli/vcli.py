@@ -86,6 +86,11 @@ class Agent:
         name, args = parts[0], parts[1:]
         if name not in self.commands:
             return f"unknown command: {name}\nType 'help' for available commands."
+        # Expose raw piped input on the agent so commands that care (e.g. curl
+        # with -d @-) can read it without it being mixed into their positional
+        # args. Still append splitlines to args for back-compat with simple
+        # pipe-friendly commands (grep, head, sed, ...).
+        self._piped = piped
         if piped is not None:
             args = args + piped.splitlines()
         cmd = self.commands[name]

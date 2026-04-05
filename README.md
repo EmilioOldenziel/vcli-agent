@@ -2,6 +2,14 @@
 
 A tiny Python framework for building virtual CLI agents — register commands with a decorator, run an interactive REPL, compose commands with pipes and chains.
 
+**Try it in one line** (needs an OpenAI key, nothing else — no install, no deps):
+
+```bash
+git clone https://github.com/EmilioOldenziel/vcli-agent && cd vcli-agent && OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me")'
+```
+
+You'll watch `gpt-4o-mini` write its own unix pipelines, pause mid-loop to call `ask_human` for the repo name, self-curl back to itself each turn, and finish with `DONE:`.
+
 ## Why this exists
 
 I built vcli to understand, for myself, what an **LLM harness** actually is — stripped of frameworks, SDKs, and orchestration jargon. A harness is just a loop: the model emits text, something parses that text into a tool call, the tool runs, its output is fed back, the model gets another turn. Everything else is decoration. To make that shape impossible to hide from, I wrote it in **pure Python** with tools as ordinary functions in a dict. No eval, no subprocess, no shelling out — the sandbox *is* the Python runtime, and the set of things the model can do is exactly the set of functions you chose to register. That constraint is the whole point: a harness is not a security boundary bolted on after the fact, it is the verbs you exposed.
@@ -18,7 +26,7 @@ Every "thinking" step is a real curl POST to a chat-completions endpoint. Every 
 
 Crucially, the "commands" are **virtual**: `grep`, `sed`, `awk`, `cut`, `curl` and friends are not shell-outs to the host's binaries, they are small pure-Python functions over strings and `urllib`. Nothing the LLM writes ever becomes a subprocess, a shell invocation, or an `eval`. That means the harness does not need Docker, seccomp, namespaces, or chroot to stay bounded — it never touches the host in the first place. The only verbs that exist are the ones registered on the agent, and the sandbox is exactly that registry. The planned virtual filesystem (see *Next steps*) closes the last seam by moving `read` and `tee` off the real disk too.
 
-See `AGENT.md` for the full protocol; it doubles as the system prompt the LLM reads when `init` runs.
+See `AGENT.md` for the full protocol; it doubles as the system prompt the LLM reads when `ask_agent` runs.
 
 ## Basic usage
 
@@ -151,24 +159,46 @@ The point of vcli is that **this same grammar is what the LLM writes**. When `ll
 
 ## The LLM agent loop
 
-Point vcli at any OpenAI-compatible chat endpoint (OpenAI, llama.cpp server, Ollama's compat API, etc.) and run `init`:
+vcli talks to any OpenAI-compatible chat endpoint. No dependencies, no SDK — just `urllib`.
+
+### Quickstart: OpenAI (zero setup)
+
+`vcli.llm_agent` is a plain library module — no `__main__`. You drive it with a short `python3 -c '...'` snippet that imports the pre-built `agent`, sets the auth header from your key, and calls `agent.run(initial="ask_agent <question>")`:
 
 ```bash
-python -m vcli.llm_agent
-llm> endpoint http://0.0.0.0:8080/v1/chat/completions
-llm> model unsloth/Qwen3.5-9B-GGUF:Q4_K_M
-llm> init
+OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me")'
 ```
 
-Or use the one-shot bootstrap:
+The agent context already defaults to `https://api.openai.com/v1/chat/completions` with `gpt-4o-mini`, so the snippet only has to inject the bearer header. `ask_agent <question>` is the chain you hand it: on the first call it loads `AGENT.md` as the system prompt and seeds the conversation with your question, then the LLM takes over, writing its own pipelines and self-curling each turn until it replies `DONE:`.
+
+Override the model in the same snippet by setting `agent.context["model"]`:
 
 ```bash
-VCLI_ENDPOINT=http://0.0.0.0:8080/v1/chat/completions \
-VCLI_MODEL=unsloth/Qwen3.5-9B-GGUF:Q4_K_M \
-python -m vcli.bootstrap_example
+OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["model"]="gpt-4o"; agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent summarize the llama.cpp README")'
 ```
 
-`init` emits a bootstrap chain — `read AGENT.md | pack | curl -d @-` — that installs `AGENT.md` as the system prompt and POSTs the first request. The LLM's reply is itself the next chain, which must end in another self-curl to keep the loop alive. The loop terminates when:
+### Interactive mode
+
+Drop the `initial=` argument to get a REPL instead of auto-kicking the loop, then type `ask_agent <question>` (or any vcli pipeline) at the prompt:
+
+```bash
+OPENAI_API_KEY=sk-... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["OPENAI_API_KEY"]; q=chr(39); agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run()'
+llm> ask_agent ask me for a github repo (owner/name), then fetch its latest release tag and report it back to me
+```
+
+### Other providers (local llama.cpp, Ollama, vLLM, Together, Groq, …)
+
+Any OpenAI-compatible endpoint works — just point `agent.context["endpoint"]` at it and set the model name. Local servers that don't need auth can skip the header entirely:
+
+```bash
+# llama.cpp server, no auth
+python3 -c 'from vcli.llm_agent import agent; agent.context["endpoint"]="http://0.0.0.0:8080/v1/chat/completions"; agent.context["model"]="unsloth/Qwen3.5-9B-GGUF:Q4_K_M"; agent.run(initial="ask_agent fetch a zen quote")'
+
+# hosted provider with a bearer token
+GROQ_API_KEY=gsk_... python3 -c 'import os; from vcli.llm_agent import agent; k=os.environ["GROQ_API_KEY"]; q=chr(39); agent.context["endpoint"]="https://api.groq.com/openai/v1/chat/completions"; agent.context["model"]="llama-3.3-70b-versatile"; agent.context["auth_header"]=f"-H {q}Authorization: Bearer {k}{q}"; agent.run(initial="ask_agent fetch a zen quote")'
+```
+
+`ask_agent` emits a chain that packs a user message and POSTs it to the endpoint. On the first call it prepends `read AGENT.md |` so the brief is installed as the system prompt; on later calls it just appends a new user turn against the running history. Either way, the LLM's reply is itself the next chain, which must end in another self-curl to keep the loop alive. The loop terminates when:
 
 - the model replies `DONE: ...`, or
 - the chain does not end in a self-curl, or
